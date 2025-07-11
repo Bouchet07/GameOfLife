@@ -6,6 +6,7 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <stdexcept>
+#include <limits>
 
 GameOfLife::GameOfLife(int winWidth, int winHeight, int grdWidth, int grdHeight, const std::string& title)
     : windowWidth(winWidth), windowHeight(winHeight), gridWidth(grdWidth), gridHeight(grdHeight), window(nullptr) {
@@ -28,8 +29,12 @@ GameOfLife::GameOfLife(int winWidth, int winHeight, int grdWidth, int grdHeight,
         << "Mouse Wheel: Zoom view\n"
         << "C: Clear board\n"
         << "R: Randomize board\n"
+        << "N: New grid with custom dimensions\n"
         << "H: Reset View (Home)\n"
         << "L: Toggle FPS Limit (V-Sync)\n"
+        << "K: Toggle Simulation Speed Limit\n"
+        << "Up/Down Arrows: Increase/Decrease Sim Speed\n"
+        << "S: Set Specific Sim Speed\n"
         << "G: Toggle Glider Mode\n"
         << "T: Rotate Glider (in Glider Mode)\n"
         << "ESC: Exit\n"
@@ -76,19 +81,101 @@ void GameOfLife::run() {
 
 void GameOfLife::mainLoop() {
     lastTime = glfwGetTime();
+    timeOfLastUpdate = lastTime; // Initialize the last update time
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         processInput();
+
+        double currentTime = glfwGetTime();
+
+        // --- This is the new speed control logic ---
+        // Only run a simulation step if the game is not paused AND
+        // if enough time has passed since the last update.
         if (!isPaused) {
-            renderer->runSimulationStep();
+            if (!limitSpeed || (currentTime - timeOfLastUpdate >= 1.0 / updatesPerSecond)) {
+                renderer->runSimulationStep();
+                timeOfLastUpdate = currentTime; // Record the time of this update
+            }
         }
+
+        // Drawing to the screen still happens every frame
         renderer->drawToScreen();
         glfwSwapBuffers(window);
+
+        // The FPS counter is now separate from the simulation speed
         updateFpsCounter();
     }
 }
 
+void GameOfLife::promptAndResizeGrid() {
+    isPaused = true; // Pause the simulation while we get input
+    std::cout << "\n--- Grid Resize ---\nSimulation paused. Please enter new grid dimensions in the console.\n"
+        << "(width height): ";
+
+    int newWidth = 0, newHeight = 0;
+    std::cin >> newWidth >> newHeight;
+
+    if (std::cin.good() && newWidth > 0 && newHeight > 0) {
+        // THE FIX: Update the GameOfLife object's own grid dimension variables.
+        this->gridWidth = newWidth;
+        this->gridHeight = newHeight;
+
+        // Now, command the renderer to perform the resize.
+        renderer->resizeGrid(newWidth, newHeight);
+        std::cout << "Grid resized. Press Space to resume simulation." << std::endl;
+    }
+    else {
+        std::cout << "Invalid input. Please enter two positive numbers." << std::endl;
+        // Clear error flags and ignore the rest of the bad input line
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+}
+
+void GameOfLife::promptAndSetSpeed() {
+    isPaused = true; // Pause while we get input
+    std::cout << "\n--- Set Speed ---\nSimulation paused. Please enter a new speed in the console.\n"
+        << "(Updates Per Second): ";
+
+    double newSpeed = 0.0;
+    std::cin >> newSpeed;
+
+    // Validate the user's input
+    if (std::cin.good() && newSpeed > 0) {
+        updatesPerSecond = newSpeed;
+        limitSpeed = true; // Re-enable the limit to use the new speed
+        std::cout << "Simulation speed set to " << updatesPerSecond << " UPS. Press Space to resume simulation" << std::endl;
+    }
+    else {
+        std::cout << "Invalid input. Please enter a positive number." << std::endl;
+        // Clear error flags and ignore the rest of the bad input line
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+}
+
 void GameOfLife::processInput() {
+    // Check for speed control keys
+    if (inputHandler->wasKeyPressed(GLFW_KEY_K)) {
+        limitSpeed = !limitSpeed;
+        std::cout << "Simulation speed limit " << (limitSpeed ? "ON" : "OFF") << std::endl;
+    }
+
+    if (inputHandler->wasKeyPressed(GLFW_KEY_UP)) {
+        updatesPerSecond *= 1.5;
+        std::cout << "Simulation speed set to " << updatesPerSecond << " UPS" << std::endl;
+    }
+    if (inputHandler->wasKeyPressed(GLFW_KEY_DOWN)) {
+        updatesPerSecond /= 1.5;
+        std::cout << "Simulation speed set to " << updatesPerSecond << " UPS" << std::endl;
+    }
+    if (inputHandler->wasKeyPressed(GLFW_KEY_S)) {
+        promptAndSetSpeed();
+    }
+    if (inputHandler->wasKeyPressed(GLFW_KEY_N)) {
+        promptAndResizeGrid();
+    }
     if (inputHandler->wasKeyPressed(GLFW_KEY_SPACE)) {
         isPaused = !isPaused;
         std::cout << (isPaused ? "Paused" : "Resumed") << std::endl;

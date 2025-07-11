@@ -7,10 +7,10 @@
 
 // --- Configuration ---
 // The grid can be any size. The renderer will add letter/pillarboxing to maintain the aspect ratio.
-constexpr int GRID_WIDTH = 1920 * 3;
-constexpr int GRID_HEIGHT = 1080 * 3;
-constexpr int INITIAL_WINDOW_WIDTH = 1920;
-constexpr int INITIAL_WINDOW_HEIGHT = 1080;
+int GRID_WIDTH = 200;
+int GRID_HEIGHT = 200;
+constexpr int INITIAL_WINDOW_WIDTH = 800;
+constexpr int INITIAL_WINDOW_HEIGHT = 800;
 
 int main() {
     try {

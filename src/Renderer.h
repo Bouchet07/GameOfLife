@@ -24,6 +24,7 @@ public:
     void randomizeBoard();
     void clearBoard();
     void handleMouseDrawing(bool isDrawing, const std::pair<double, double>& mousePos, bool isGliderMode, int gliderRotation);
+    void resizeGrid(int newWidth, int newHeight);
 
     // --- Event Handlers ---
     void onWindowResize(int newWidth, int newHeight);
@@ -47,8 +48,8 @@ private:
     // Window and Grid dimensions
     int windowWidth;
     int windowHeight;
-    const int GRID_WIDTH;
-    const int GRID_HEIGHT;
+    int GRID_WIDTH;
+    int GRID_HEIGHT;
 
     // OpenGL resources
     std::unique_ptr<Shader> computeProgram;
@@ -62,4 +63,5 @@ private:
     float panX = 0.0f;
     float panY = 0.0f;
     float zoom = 1.0f;
+    float maxZoom;
 };

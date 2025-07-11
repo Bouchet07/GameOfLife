@@ -23,6 +23,8 @@ private:
     void updateFpsCounter();
     void processInput();
     void onWindowResize(int width, int height);
+    void promptAndResizeGrid();
+    void promptAndSetSpeed();
 
     int windowWidth;
     int windowHeight;
@@ -37,4 +39,8 @@ private:
 
     double lastTime = 0.0;
     int frameCount = 0;
+
+    bool limitSpeed = true;
+    double updatesPerSecond = 30.0;
+    double timeOfLastUpdate = 0.0;
 };

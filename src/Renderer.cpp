@@ -23,6 +23,10 @@ Renderer::Renderer(GLFWwindow* win, int winWidth, int winHeight, int gridW, int 
     initTextures();
     initFramebuffers();
     resetView();
+
+    // Calculate the initial max zoom level
+    float maxDimension = std::max(GRID_WIDTH, GRID_HEIGHT);
+    maxZoom = maxDimension / 10.0f; // Allow zooming to see a minimum of 10 cells
 }
 
 Renderer::~Renderer() {
@@ -55,7 +59,7 @@ void Renderer::zoomAt(double screenX, double screenY, float zoomFactor) {
     float texY_before = (float)(invertedY / windowHeight) / zoom + panY;
 
     zoom *= zoomFactor;
-    zoom = std::max(0.1f, std::min(zoom, 50.0f));
+    zoom = std::max(0.1f, std::min(zoom, this->maxZoom));
 
     float texX_after = (float)(screenX / windowWidth) / zoom + panX;
     float texY_after = (float)(invertedY / windowHeight) / zoom + panY;
@@ -107,57 +111,39 @@ float mix(float a, float b, float t) {
 }
 
 std::pair<float, float> Renderer::screenToTextureCoords(double screenX, double screenY) const {
-    int winWidthPoints, winHeightPoints;
-    glfwGetWindowSize(window, &winWidthPoints, &winHeightPoints);
+    // Normalize mouse coordinates to [-1, 1] range, with Y inverted.
+    float normX = (float)(screenX / windowWidth) * 2.0f - 1.0f;
+    float normY = 1.0f - (float)(screenY / windowHeight) * 2.0f;
 
-    if (winWidthPoints == 0 || winHeightPoints == 0) {
-        return { -1.f, -1.f };
-    }
-
-    // 1. Normalize mouse coordinates to [0, 1]
-    float normX = (float)screenX / winWidthPoints;
-    float normY = 1.0f - ((float)screenY / winHeightPoints);
-
-
-    // --- This block now EXACTLY mirrors the logic in your shaders ---
-
-    // Calculate aspect ratios
-    float windowAspect = (float)winWidthPoints / (float)winHeightPoints;
+    // Re-calculate the aspect ratio scaling exactly as in the vertex shader.
+    float windowAspect = (float)windowWidth / (float)windowHeight;
     float gridAspect = (float)GRID_WIDTH / (float)GRID_HEIGHT;
-
-    // A. Calculate the FIT scale (with bars)
-    float fitScaleX = 1.0f, fitScaleY = 1.0f;
+    float scaleX = 1.0f, scaleY = 1.0f;
     if (windowAspect > gridAspect) {
-        fitScaleX = gridAspect / windowAspect;
+        scaleX = gridAspect / windowAspect;
     }
     else {
-        fitScaleY = windowAspect / gridAspect;
+        scaleY = windowAspect / gridAspect;
     }
 
-    // B. The FILL scale is always (1, 1)
-    float fillScaleX = 1.0f, fillScaleY = 1.0f;
-
-    // C. Calculate the interpolation factor 't' based on the current zoom level
-    float transitionZoom = 1.0f / std::min(fitScaleX, fitScaleY);
-    float t = 0.0f;
-    // Check to avoid division by zero if aspect ratios already match
-    if (transitionZoom > 1.0f) {
-        // A simple version of GLSL's smoothstep
-        t = (this->zoom - 1.0f) / (transitionZoom - 1.0f);
-        t = std::max(0.0f, std::min(1.0f, t)); // Clamp t between 0.0 and 1.0
+    // Reverse the scaling to find the position on the unscaled quad.
+    // If the click is outside this scaled area (in the letterbox), we return an invalid coordinate.
+    if (abs(normX) > abs(scaleX) || abs(normY) > abs(scaleY)) {
+        return { -1.0f, -1.0f };
     }
+    float unscaledX = normX / scaleX;
+    float unscaledY = normY / scaleY;
 
-    // D. Interpolate between FIT and FILL scales using our helper function
-    float finalScaleX = mix(fitScaleX, fillScaleX, t);
-    float finalScaleY = mix(fitScaleY, fillScaleY, t);
+    // Now, reverse the pan and zoom transformation from the vertex shader.
+    // Convert from [-1, 1] to [0, 1] UV range.
+    float quad_uv_x = (unscaledX + 1.0f) / 2.0f;
+    float quad_uv_y = (unscaledY + 1.0f) / 2.0f;
 
-    // E. Apply the final transformation, just like the shader
-    float correctedX = (normX - 0.5f) * finalScaleX + 0.5f;
-    float correctedY = (normY - 0.5f) * finalScaleY + 0.5f;
+    // Finally, apply the zoom and pan to get the final texture coordinate.
+    float texCoordX = quad_uv_x / zoom + panX;
+    float texCoordY = quad_uv_y / zoom + panY;
 
-    // --- End of the matching logic ---
-
-    return { correctedX, correctedY };
+    return { texCoordX, texCoordY };
 }
 
 void Renderer::randomizeBoard() {
@@ -214,16 +200,16 @@ void Renderer::drawToScreen() {
 void Renderer::handleMouseDrawing(bool isLeftMouseDrag, const std::pair<double, double>& mousePos, bool isGliderMode, int gliderRotation) {
     if (!isLeftMouseDrag) return;
 
-    auto correctedUv = screenToTextureCoords(mousePos.first, mousePos.second);
-    if (correctedUv.first < 0.f || correctedUv.first > 1.f || correctedUv.second < 0.f || correctedUv.second > 1.f) {
-        return;
+    // THIS FUNCTION IS NOW SIMPLER
+    // We get the final texture coordinate directly from our corrected conversion function.
+    auto texCoords = screenToTextureCoords(mousePos.first, mousePos.second);
+
+    if (texCoords.first < 0.f || texCoords.first > 1.f || texCoords.second < 0.f || texCoords.second > 1.f) {
+        return; // Click was outside the valid grid area
     }
 
-    float finalTexCoordX = correctedUv.first / zoom + panX;
-    float finalTexCoordY = correctedUv.second / zoom + panY;
-
-    int gridX = static_cast<int>(finalTexCoordX * GRID_WIDTH);
-    int gridY = static_cast<int>(finalTexCoordY * GRID_HEIGHT);
+    int gridX = static_cast<int>(texCoords.first * GRID_WIDTH);
+    int gridY = static_cast<int>(texCoords.second * GRID_HEIGHT);
 
     if (isGliderMode) {
         static const std::vector<std::pair<int, int>> gliderPattern = { {1, 0}, {2, 1}, {0, 2}, {1, 2}, {2, 2} };
@@ -257,4 +243,29 @@ void Renderer::drawPattern(int centerX, int centerY, const std::vector<std::pair
         }
     }
     glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void Renderer::resizeGrid(int newWidth, int newHeight) {
+    // 1. Update the stored dimensions
+    GRID_WIDTH = newWidth;
+    GRID_HEIGHT = newHeight;
+    std::cout << "Resizing grid to " << GRID_WIDTH << "x" << GRID_HEIGHT << std::endl;
+
+    // 2. Clean up the old OpenGL objects that depend on grid size
+    glDeleteFramebuffers(2, fbo);
+    glDeleteTextures(2, textures);
+
+    // 3. Re-create the textures and framebuffers with the new size
+    //    (Our existing init functions work perfectly for this)
+    initTextures();
+    initFramebuffers();
+
+    // 4. Initialize the new grid with a fresh state
+    randomizeBoard();
+
+    // Recalculate max zoom for the new grid size
+    float maxDimension = std::max(newWidth, newHeight);
+    maxZoom = maxDimension / 10.0f;
+
+    resetView();
 }
