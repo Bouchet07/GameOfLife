@@ -4,34 +4,39 @@
 #version 330 core
 out vec4 FragColor;
 in vec2 v_texCoord;
-in vec2 v_unscaledUv; // Use this for bounds checking
+in vec2 v_unscaledUv;
 
 uniform sampler2D u_screenTexture;
 uniform vec2 u_resolution;
 uniform vec2 u_gridResolution;
+uniform float u_zoom; // The new uniform
 
 void main() {
+    // --- This block must exactly match the logic in the vertex shader ---
     float windowAspect = u_resolution.x / u_resolution.y;
     float gridAspect = u_gridResolution.x / u_gridResolution.y;
     
-    vec2 scale;
+    vec2 fitScale = vec2(1.0);
     if(windowAspect > gridAspect) {
-        scale = vec2(gridAspect / windowAspect, 1.0);
+        fitScale.x = gridAspect / windowAspect;
     } else {
-        scale = vec2(1.0, windowAspect / gridAspect);
+        fitScale.y = windowAspect / gridAspect;
     }
+    vec2 fillScale = vec2(1.0);
+    float transitionZoom = 1.0 / min(fitScale.x, fitScale.y);
+    float t = smoothstep(1.0, transitionZoom, u_zoom);
+    vec2 finalScale = mix(fitScale, fillScale, t);
+    // --- End of matching block ---
 
-    // Check if the original screen UV is outside the scaled area
-    if (abs(v_unscaledUv.x - 0.5) > scale.x * 0.5 || abs(v_unscaledUv.y - 0.5) > scale.y * 0.5) {
+
+    // Check if the pixel is inside the dynamically scaled area
+    bool isInBars = abs(v_unscaledUv.x - 0.5) > finalScale.x * 0.5 || abs(v_unscaledUv.y - 0.5) > finalScale.y * 0.5;
+    bool isOutOfBounds = v_texCoord.x < 0.0 || v_texCoord.x > 1.0 || v_texCoord.y < 0.0 || v_texCoord.y > 1.0;
+
+    if (isInBars || isOutOfBounds) {
         FragColor = vec4(0.05, 0.05, 0.05, 1.0); // Dark grey for bars
     } else {
-        // Use the corrected, panned, and zoomed texture coordinates
-        // We also check if the coordinate is outside the [0,1] range to avoid wrapping artifacts at the edges when zoomed in.
-        if (v_texCoord.x < 0.0 || v_texCoord.x > 1.0 || v_texCoord.y < 0.0 || v_texCoord.y > 1.0) {
-             FragColor = vec4(0.05, 0.05, 0.05, 1.0); // Same color as letterbox
-        } else {
-             float cellState = texture(u_screenTexture, v_texCoord).r;
-             FragColor = vec4(vec3(cellState), 1.0);
-        }
+        float cellState = texture(u_screenTexture, v_texCoord).r;
+        FragColor = vec4(vec3(cellState), 1.0);
     }
 }

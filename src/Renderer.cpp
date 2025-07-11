@@ -101,6 +101,11 @@ void Renderer::initFramebuffers() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// Helper for linear interpolation (the C++ version of GLSL's mix function)
+float mix(float a, float b, float t) {
+    return a * (1.0f - t) + b * t;
+}
+
 std::pair<float, float> Renderer::screenToTextureCoords(double screenX, double screenY) const {
     int winWidthPoints, winHeightPoints;
     glfwGetWindowSize(window, &winWidthPoints, &winHeightPoints);
@@ -109,27 +114,48 @@ std::pair<float, float> Renderer::screenToTextureCoords(double screenX, double s
         return { -1.f, -1.f };
     }
 
-    // 1. Normalize mouse coordinates to [0, 1], same as v_unscaledUv in the shader
+    // 1. Normalize mouse coordinates to [0, 1]
     float normX = (float)screenX / winWidthPoints;
     float normY = 1.0f - ((float)screenY / winHeightPoints);
 
-    // 2. Calculate the scale factor, same as the shader
+
+    // --- This block now EXACTLY mirrors the logic in your shaders ---
+
+    // Calculate aspect ratios
     float windowAspect = (float)winWidthPoints / (float)winHeightPoints;
     float gridAspect = (float)GRID_WIDTH / (float)GRID_HEIGHT;
 
-    float scaleX = 1.0f;
-    float scaleY = 1.0f;
+    // A. Calculate the FIT scale (with bars)
+    float fitScaleX = 1.0f, fitScaleY = 1.0f;
     if (windowAspect > gridAspect) {
-        scaleX = gridAspect / windowAspect;
+        fitScaleX = gridAspect / windowAspect;
     }
     else {
-        scaleY = windowAspect / gridAspect;
+        fitScaleY = windowAspect / gridAspect;
     }
 
-    // 3. THE FIX: Perform the EXACT same transformation as the vertex shader.
-    // The previous error was using division here instead of multiplication.
-    float correctedX = (normX - 0.5f) * scaleX + 0.5f;
-    float correctedY = (normY - 0.5f) * scaleY + 0.5f;
+    // B. The FILL scale is always (1, 1)
+    float fillScaleX = 1.0f, fillScaleY = 1.0f;
+
+    // C. Calculate the interpolation factor 't' based on the current zoom level
+    float transitionZoom = 1.0f / std::min(fitScaleX, fitScaleY);
+    float t = 0.0f;
+    // Check to avoid division by zero if aspect ratios already match
+    if (transitionZoom > 1.0f) {
+        // A simple version of GLSL's smoothstep
+        t = (this->zoom - 1.0f) / (transitionZoom - 1.0f);
+        t = std::max(0.0f, std::min(1.0f, t)); // Clamp t between 0.0 and 1.0
+    }
+
+    // D. Interpolate between FIT and FILL scales using our helper function
+    float finalScaleX = mix(fitScaleX, fillScaleX, t);
+    float finalScaleY = mix(fitScaleY, fillScaleY, t);
+
+    // E. Apply the final transformation, just like the shader
+    float correctedX = (normX - 0.5f) * finalScaleX + 0.5f;
+    float correctedY = (normY - 0.5f) * finalScaleY + 0.5f;
+
+    // --- End of the matching logic ---
 
     return { correctedX, correctedY };
 }
